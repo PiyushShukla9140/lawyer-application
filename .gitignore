@@ -1,0 +1,94 @@
+# ==========================================
+# Dependencies
+# ==========================================
+node_modules/
+/.pnp
+.pnp.js
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+# NEVER commit API keys, database credentials, or JWT secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# ==========================================
+# Build & Production Outputs
+# ==========================================
+# React / Vite build output
+/build
+/dist
+/out
+
+# Server build output (if using TypeScript or bundlers)
+/server/dist
+/server/build
+
+# ==========================================
+# Logs & Debugging
+# ==========================================
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==========================================
+# Database & Local Uploads
+# ==========================================
+# Ignore local uploads directory if users upload images/files locally
+/uploads/
+/public/uploads/
+
+# Local database dumps
+*.bson
+*.json.gz
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+/coverage
+/.nyc_output
+
+# ==========================================
+# Editor & System Files
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# VS Code & IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ==========================================
+# Cache Directories
+# ==========================================
+.eslintcache
+.stylelintcache
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
