@@ -9,6 +9,7 @@ export enum UserRole{
 }
 
 export interface User extends Document{
+    _id: Types.ObjectId;
     workspace:Types.ObjectId;
     fullName:string;
     email:string;
@@ -22,7 +23,7 @@ export interface User extends Document{
     updatedAt:Date
 }
 
-const userSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema<User>({
     workspace:{
         type:mongoose.Schema.Types.ObjectId,
         ref:"Workspace",
@@ -57,7 +58,7 @@ const userSchema = new mongoose.Schema({
         default:UserRole.Lawyer
 
     },
-    isEmailVerified:{
+    isEmalVerified:{
         type:Boolean,
         default:false
 
@@ -73,4 +74,4 @@ const userSchema = new mongoose.Schema({
 },{timestamps:true})
 
 
-export const User = mongoose.model("User",userSchema)
+export const User = mongoose.model<User>("User",userSchema)
