@@ -20,6 +20,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import { User } from '../models/user.model';
+import { ApiError } from '../utils/ApiError';
+import { asyncHandler } from '../utils/AsyncHandler';
 
 interface TokenPayload extends JwtPayload {
   _id: string;
@@ -28,7 +30,7 @@ interface TokenPayload extends JwtPayload {
   role: string;
 }
 
-export const verifyJWT = async (req: Request, res: Response, next: NextFunction) => {
+export const verifyJWT = asyncHandler (async(req: Request, res: Response, next: NextFunction)=> {
   try {
     // Extract token from Bearer Header or Cookies
     const token =
@@ -36,15 +38,12 @@ export const verifyJWT = async (req: Request, res: Response, next: NextFunction)
       req.header('Authorization')?.replace('Bearer ', '');
 
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized access. Token is missing.',
-      });
+      return new ApiError(401,"Unauthorized access")
     }
 
     const secret = process.env.ACCESS_TOKEN_SECRET;
 
-    // 🔒 Security Check: Never fall back to a hardcoded string
+    // Security Check: Never fall back to a hardcoded string
     if (!secret) {
     throw new Error("FATAL ERROR: ACCESS_TOKEN_SECRET is not defined in environment variables.");
     }
@@ -55,19 +54,15 @@ export const verifyJWT = async (req: Request, res: Response, next: NextFunction)
     const user = await User.findById(decodedToken._id).select('-password');
 
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid access token. User not found.',
-      });
+      return new ApiError(401,"User not found. Invalid access Token")
     }
 
     req.user = user;
     next();
   } catch (error: any) {
-    return res.status(401).json({
-      success: false,
-      message: error?.message || 'Invalid or expired token',
-    });
+    return new ApiError(401,error?.message||"Invalid or Expired Token")
   }
-};
+});
+
+
 
