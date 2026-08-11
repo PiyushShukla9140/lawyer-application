@@ -1,4 +1,4 @@
-import mongoose,{Document,Types}from "mongoose";
+import mongoose,{Document,Types,Model}from "mongoose";
 import bcrypt from 'bcrypt';
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
 
@@ -13,6 +13,7 @@ export enum UserRole{
 export interface User extends Document{
     _id: Types.ObjectId;
     workspace:Types.ObjectId;
+    username:string;
     fullName:string;
     email:string;
     password:string;
@@ -25,12 +26,25 @@ export interface User extends Document{
     updatedAt:Date
 }
 
-const userSchema = new mongoose.Schema<User>({
+export interface UserMethods {
+  isPasswordCorrect(password: string): Promise<boolean>;
+  generateAccessToken(): string;
+  generateRefreshToken(): string;
+}
+
+export interface UserDocument extends Document, User, UserMethods {}
+const userSchema = new mongoose.Schema<UserDocument, Model<UserDocument>, UserMethods>({
     workspace:{
         type:mongoose.Schema.Types.ObjectId,
         ref:"Workspace",
         required:[true,"Workspace is required"],
         index:true
+    },
+    username:{
+        type:String,
+        required:[true,"username is required"],
+        index:true,
+        lowercase:true
     },
     fullName:{
         type:String,
@@ -156,4 +170,4 @@ Minimal Payload: Only contains _id. Its sole job is to allow the frontend to req
  */
 
 
-export const User = mongoose.model<User>("User",userSchema)
+export const User = mongoose.model<UserDocument>("User",userSchema)
