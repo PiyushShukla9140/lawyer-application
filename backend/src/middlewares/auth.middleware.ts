@@ -42,7 +42,13 @@ export const verifyJWT = async (req: Request, res: Response, next: NextFunction)
       });
     }
 
-    const secret = process.env.ACCESS_TOKEN_SECRET || 'default_access_secret';
+    const secret = process.env.ACCESS_TOKEN_SECRET;
+
+    // 🔒 Security Check: Never fall back to a hardcoded string
+    if (!secret) {
+    throw new Error("FATAL ERROR: ACCESS_TOKEN_SECRET is not defined in environment variables.");
+    }
+
     const decodedToken = jwt.verify(token, secret) as TokenPayload;
 
     // Retrieve user details excluding sensitive data
