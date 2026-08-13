@@ -2,10 +2,17 @@ import { asyncHandler } from "../utils/AsyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { User } from "../models/user.model";
+import { WorkSpace } from "../models/workspace.model";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import mongoose from "mongoose";
 import { Response,Request } from "express";
 import { uploadOnCloudinary,deleteFromCloudinary } from "../utils/cloudinary";
+
+import { sendEmail } from '../utils/sendEmail';
+import { getVerificationEmailHtml } from '../utils/emailTemplate';
+
+
+import crypto from "crypto"
 
 
 // Options for HttpOnly secure cookies
@@ -28,7 +35,7 @@ const registerUser  = asyncHandler(async(req:Request,res:Response)=>{
     // Step 8: check whether the user is created or not
     // Step 9: return response
 
-    if([username,email,fullName,password,workspaceId].some((field)=>field.trim()==="")){
+    if([username,email,fullName,password].some((field)=>field.trim()==="")){
         throw new ApiError(400,"All fields are required")
     }
 
@@ -52,15 +59,39 @@ const registerUser  = asyncHandler(async(req:Request,res:Response)=>{
         profileImage = await uploadOnCloudinary(profileImageLocalPath);
     }
 
+    let finalWorkspaceId = workspaceId;
+
+    if (!finalWorkspaceId) {
+        const defaultWorkspace = await WorkSpace.create({
+        name: `${fullName.trim()}'s Workspace`,
+        });
+        finalWorkspaceId = defaultWorkspace._id;
+    }
+
+    
+
     
 
     const user = await User.create({
         fullName,
         email,
+        username,
         password,
-        workspace:workspaceId,
+        workspace:finalWorkspaceId,
         profileImage: profileImage?.url || "",
     })
+
+    const verificationToken = user.generateEmailVerificationToken();
+        await user.save({ validateBeforeSave: false });
+
+        const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}&email=${user.email}`;
+
+        // Send verification email asynchronously
+        await sendEmail({
+        to: user.email,
+        subject: 'Verify your SmartBrief Account',
+        html: getVerificationEmailHtml(verificationUrl, user.fullName),
+    });
 
     const createdUser = await User.findById(user._id).select('-password -refreshToken');
 
@@ -99,17 +130,13 @@ const generateAccessAndRefreshToken = async(userId:string)=>{
 }
 
 const loginUser = asyncHandler(async(req:Request,res:Response)=>{
-    const {username,email,password} = req.body
+    const {email,password} = req.body
 
-    if (!password || (!username && !email)) {
+    if (!password && !email) {
         throw new ApiError(400, "Email/Username and password are required");
     }
 
-    const user = await User.findOne({
-        $or:[
-            {email},{username}
-        ]
-    })
+    const user = await User.findOne({email})
 
     if(!user){
         throw new ApiError(404,"User does not exist")
@@ -212,7 +239,176 @@ const refreshAccessToken = asyncHandler(async(req:Request,res:Response)=>{
     } catch (error: any) {
         throw new ApiError(401, error?.message || "Refresh token expired or invalid");
     }
+});
+
+// password change handler
+const changePassword = asyncHandler(async(req:Request,res:Response)=>{
+    const {oldPassword,newPassword} = req.body;
+     if(!oldPassword||!newPassword){
+        throw new ApiError(400,"Both old password and new passsword are required")
+     }
+
+     const user = await User.findById(req.user?._id);
+     if(!user){
+        throw new ApiError(404,"User not found")
+     }
+
+     const isPaaswordCorrect = await user.isPasswordCorrect(oldPassword)
+     if(!isPaaswordCorrect){
+        throw new ApiError(400,"Invalid old password")
+     }
+
+
+     user.password = newPassword
+
+     await user.save({validateBeforeSave:false})
+
+     return res.status(200)
+     .json(new ApiResponse(200,{},"User password changed successfully"))
 })
+// account details update handler
+
+const updateAccountDetails = asyncHandler(async(req:Request,res:Response)=>{
+    const {fullName,email} = req.body;
+
+    if(!fullName && !email){
+        throw new ApiError(400,"Either username or email field is required to update acoount details")
+    }
+
+    const updateFields : {fullName?:string,email?:string,isEmailVerified?:boolean}={}
+
+    if(fullName) updateFields.fullName = fullName
+    if (email && email !== req.user?.email) {
+        // Check if new email is already taken
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+        throw new ApiError(409, "A user with this email already exists");
+        }
+        updateFields.email = email;
+        updateFields.isEmailVerified = false; // Reset verification status if email changes
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(req.user?._id,{
+        $set:updateAccountDetails
+    },{new:true}).select("-password -refreshToken");
+
+    return res
+    .status(200)
+    .json(new ApiResponse(200, updatedUser, "Account details updated successfully"));
+});
+
+
+
+// profile image update handler
+const updateProfileImage = asyncHandler(async(req:Request,res:Response)=>{
+    const profileImageLocalPath = req.file?.path
+    // multer middleware provides us this req.files 
+
+    if(!profileImageLocalPath){
+        throw new ApiError(404,"The profile image file is missing")
+    }
+
+    const oldProfileImage = req.user?.profileImage
+
+    const newProfileImage = await uploadOnCloudinary(profileImageLocalPath)
+
+    if (!newProfileImage?.url) {
+        throw new ApiError(500, "Error while uploading profile image to Cloudinary");
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(req.user?._id,{
+        $set: {
+            profileImage: newProfileImage.url,
+        },
+    },{new:true}).select("-password -refreshToken");
+
+    if(oldProfileImage){
+        await deleteFromCloudinary(oldProfileImage);
+    }
+
+    return res
+    .status(200)
+    .json(new ApiResponse(200, updatedUser, "Profile image updated successfully"));
+})
+
+
+
+
+
+// email verification handler
+// There will be two handler fuction of email verification first one is verifying enail and second one is for requesting a new link 
+
+const verifyEmail  = asyncHandler(async(req:Request,res:Response)=>{
+    const {token,email} = req.query;
+
+    if(!token||!email||typeof email !== 'string' || typeof token !== 'string'){
+        throw new ApiError(400,"Invalid or missing verification query parameters")
+    }
+
+    const hashedToken = crypto.createHash("sha256")
+                              .update(token as string)
+                              .digest("hex")
+
+                              //SHA-256 Hashing: Converts the plain token received from req.query.token into its hex hash.
+    const user = await User.findOne({
+        email:email.toLowerCase(),
+        emailVerificationToken: hashedToken,
+        emailVerificationExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+        throw new ApiError(400, "Invalid or expired email verification token");
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpiry = undefined;
+    await user.save({ validateBeforeSave: false });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, {}, "Email verified successfully"))
+})
+
+
+
+const resendVerificationEmail = asyncHandler(async (req: Request, res: Response) => {
+  const user = await User.findById(req.user?._id);
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  if (user.isEmailVerified) {
+    throw new ApiError(400, "Email is already verified");
+  }
+
+  // Generate new token via instance method
+  const verificationToken = user.generateEmailVerificationToken();
+  await user.save({ validateBeforeSave: false });
+
+  // const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}&email=${user.email}`;
+  // TODO: Trigger email service (e.g., Nodemailer / Resend / SendGrid)
+
+
+  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}&email=${user.email}`;
+
+    await sendEmail({
+        to: user.email,
+        subject: 'Re-verify your SmartBrief Account',
+        html: getVerificationEmailHtml(verificationUrl, user.fullName),
+    });
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { verificationToken }, // Exposed during development; remove token from response body in production
+        "Verification email re-sent successfully"
+      )
+    );
+});
 
 
 
@@ -222,6 +418,23 @@ export {
     loginUser,
     logoutUser,
     getCurrentUser,
-    refreshAccessToken
+    refreshAccessToken,
+    changePassword,
+    updateAccountDetails,
+    updateProfileImage,
+    verifyEmail,
+    resendVerificationEmail
+
 
 }
+
+/*
+In computing and cryptography, a hex hash (short for hexadecimal hash) is simply a hash value represented as a string of hexadecimal characters (0–9 and a–f).
+
+1. How It Works
+Input Any Data: You pass data (like a string, a file, or a password) through a cryptographic hash function (such as SHA-256 or MD5).
+
+Binary Output: The hash function processes the input and produces a sequence of raw binary bytes (1s and 0s).
+
+Hex Encoding: Since raw binary bytes are unreadable by humans and can cause issues when transmitted in text formats (like JSON, HTTP, or source code), those bytes are converted into hexadecimal notation—where every 8-bit byte is represented by two hexadecimal characters (0–9, a–f).
+ */

@@ -1,6 +1,7 @@
 import mongoose,{Document,Types,Model}from "mongoose";
 import bcrypt from 'bcrypt';
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
+import crypto from "crypto"
 
 export enum UserRole{
     Owner="Owner",
@@ -19,9 +20,12 @@ export interface User extends Document{
     password:string;
     profileImage?:string;
     role:UserRole;
-    isEmalVerified:boolean;
     acceptedTermsAt?:Date;
     refreshToken?:string
+    isEmailVerified:boolean
+    emailVerificationToken?:string
+    emailVerificationExpiry?:Date
+
     createdAt:Date;
     updatedAt:Date
 }
@@ -30,6 +34,7 @@ export interface UserMethods {
   isPasswordCorrect(password: string): Promise<boolean>;
   generateAccessToken(): string;
   generateRefreshToken(): string;
+  generateEmailVerificationToken(): string;
 }
 
 export interface UserDocument extends Document, User, UserMethods {}
@@ -37,7 +42,7 @@ const userSchema = new mongoose.Schema<UserDocument, Model<UserDocument>, UserMe
     workspace:{
         type:mongoose.Schema.Types.ObjectId,
         ref:"Workspace",
-        required:[true,"Workspace is required"],
+        required:false,
         index:true
     },
     username:{
@@ -54,7 +59,7 @@ const userSchema = new mongoose.Schema<UserDocument, Model<UserDocument>, UserMe
     email:{
         type:String,
         unique:true,
-        requred:[true,"email is required"],
+        required:[true,"email is required"],
         trim:true,
         lowercase:true
     },
@@ -74,17 +79,24 @@ const userSchema = new mongoose.Schema<UserDocument, Model<UserDocument>, UserMe
         default:UserRole.Lawyer
 
     },
-    isEmalVerified:{
-        type:Boolean,
-        default:false
-
-    },
     acceptedTermsAt:{
         type:Date
     },
     refreshToken:{
         type:String
+    },
+    isEmailVerified:{
+        type:Boolean,
+        default:false
+    },
+    emailVerificationToken:{
+        type:String
+    },
+    emailVerificationExpiry:{
+        type:Date
     }
+
+
     
 
 },{timestamps:true})
@@ -168,6 +180,24 @@ userSchema.methods.generateRefreshToken = function (): string {
 Refresh Token Purpose: Long-lived JWT (typically 7 days) stored securely in an HTTP-only cookie or saved in the database.
 Minimal Payload: Only contains _id. Its sole job is to allow the frontend to request a new Access Token once the old 15-minute Access Token expires, avoiding forcing the user to log in repeatedly.
  */
+
+
+userSchema.methods.generateEmailVerificationToken = function (): string {
+  // 1. Generate unhashed raw token for email link
+  const unhashedToken = crypto.randomBytes(32).toString("hex");
+
+  // 2. Hash raw token to store safely in DB
+  this.emailVerificationToken = crypto
+    .createHash("sha256")
+    .update(unhashedToken)
+    .digest("hex");
+
+  // 3. Set expiry time (e.g., 20 minutes from now)
+  this.emailVerificationExpiry = new Date(Date.now() + 20 * 60 * 1000);
+
+  // 4. Return raw unhashed token to be emailed to user
+  return unhashedToken;
+};
 
 
 export const User = mongoose.model<UserDocument>("User",userSchema)
