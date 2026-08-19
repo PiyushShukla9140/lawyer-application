@@ -36,6 +36,11 @@ export const verifyJWT = asyncHandler (async(req: Request, res: Response, next: 
     const token =
       req.cookies?.accessToken ||
       req.header('Authorization')?.replace('Bearer ', '');
+      // if not found in cookies then search for authorization in headers 
+      // noramlly authorization headder has syntax Authorization: Bearer <token>
+      // the bearer tells the server that this word's value is accesstoken
+      // but here we only need accesstoken so we remove the bearer and empty space with it, so we can get the access token
+    
 
     if (!token) {
       return new ApiError(401,"Unauthorized access")

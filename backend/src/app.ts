@@ -7,12 +7,6 @@ const app : Application = express();
 // middlewares
 
 app.use(cors());
-app.use(express.json())
-
-
-// healthcheck route
-
-
 
 app.use(express.json({limit:"16kb"}))
 //url encoder
